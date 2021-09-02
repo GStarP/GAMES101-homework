@@ -116,14 +116,25 @@ struct light
 Eigen::Vector3f texture_fragment_shader(const fragment_shader_payload &payload)
 {
     Eigen::Vector3f return_color = {0, 0, 0};
+    // 获取纹理颜色
     if (payload.texture)
     {
-        // TODO: Get the texture value at the texture coordinates of the current fragment
+        float ux = payload.tex_coords.x();
+        float vy = payload.tex_coords.y(); // 避免和下面的向量 v 重名
+        // 会发现纹理坐标有负数，这是不应该出现的
+        if (ux < 0 || vy < 0)
+        {
+            std::cout << ux << "\t" << vy << std::endl;
+            ux = ux < 0 ? 0 : ux;
+            vy = vy < 0 ? 0 : vy;
+        }
+        return_color = payload.texture->getColor(ux, vy);
     }
     Eigen::Vector3f texture_color;
     texture_color << return_color.x(), return_color.y(), return_color.z();
 
     Eigen::Vector3f ka = Eigen::Vector3f(0.005, 0.005, 0.005);
+    // 颜色归一化
     Eigen::Vector3f kd = texture_color / 255.f;
     Eigen::Vector3f ks = Eigen::Vector3f(0.7937, 0.7937, 0.7937);
 
@@ -134,7 +145,7 @@ Eigen::Vector3f texture_fragment_shader(const fragment_shader_payload &payload)
     Eigen::Vector3f amb_light_intensity{10, 10, 10};
     Eigen::Vector3f eye_pos{0, 0, 10};
 
-    float p = 150;
+    int p = 150;
 
     Eigen::Vector3f color = texture_color;
     Eigen::Vector3f point = payload.view_pos;
@@ -142,11 +153,26 @@ Eigen::Vector3f texture_fragment_shader(const fragment_shader_payload &payload)
 
     Eigen::Vector3f result_color = {0, 0, 0};
 
+    // 应用所有光照
     for (auto &light : lights)
     {
-        // TODO: For each light source in the code, calculate what the *ambient*, *diffuse*, and *specular*
-        // components are. Then, accumulate that result on the *result_color* object.
+        Eigen::Vector3f l = light.position - point;
+        // 漫反射
+        Eigen::Vector3f ld = kd.cwiseProduct(light.intensity / l.dot(l)) *
+                             // 注意：n·l 时，n 已经归一化过了，所以 l 也要归一化
+                             std::max(0.f, normal.dot(l.normalized()));
+        // 高光
+        Eigen::Vector3f v = eye_pos - point;
+        // 注意：算半程向量前也要先归一化
+        Eigen::Vector3f h = v.normalized() + l.normalized();
+        Eigen::Vector3f ls = ks.cwiseProduct(light.intensity / l.dot(l)) *
+                             std::max(0.0, pow(normal.dot(h.normalized()), p));
+
+        result_color += (ld + ls);
     }
+    // 应用环境光（注意不要放到上面的循环里，环境光只有一个）
+    Eigen::Vector3f la = ka.cwiseProduct(amb_light_intensity);
+    result_color += la;
 
     return result_color * 255.f;
 }
